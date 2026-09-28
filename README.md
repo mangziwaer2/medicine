@@ -6,6 +6,20 @@
 
 ## 当前唯一主线
 
+### 目录交接约定
+
+```text
+config/icrp_reviewed_models.json   人工审核的 ICRP 模型输入（唯一医学配置入口）
+data/icrp_model_registry_v1/       由配置生成的可执行 registry
+data/icrp_knowledge_base_v2/       ICRP 文档检索索引
+data/synthetic_bioassay_icrp_v1/   仅用于理论验证的合成病例
+src/run_ode_dataset_pipeline.py    正式推理入口
+src/train_joint_grpo.py            正式联合训练入口
+src/train_qwen_grpo.py             联合训练复用的 GRPO helper，不作为单独主线
+docs/cloud_training.md              唯一训练与云端交接文档
+models/和 temp/                     本地/云端生成的模型、数据和日志，不参与代码版本
+```
+
 ```text
 病例 JSON
   -> 严格审核的 ICRP 模型注册表
@@ -27,7 +41,7 @@ Qwen 永远不能输出或修改 compartment、transfer、rate、physical decay�
 
 Qwen 的输出是受限 JSON 策略：一个白名单 operator、注册 model_id 子集、可选的有界候选点以及短理由。审计器会丢弃未知模型、越界点、重复点、受保护字段和预算违规动作。数值执行器最终输出每个核素的 `intake_bq_estimate`、`intake_time_d_estimate`、预测值、残差、objective、ODE 调用次数、所用算子和完整审计轨迹。
 
-MLP 只决定 `SKIP_LLM`/`CALL_LLM`；Qwen 只决定优化策略；SciPy 优化器求连续变量；ICRP registry 是唯一前向模型来源。四者的权限互不重叠。
+MLP 只决定 `SKIP_LLM`/`CALL_LLM`：前者执行确定性 fallback 算子并继续数值优化，后者调用 Qwen；只有收敛或不可辨识安全规则才能停止。Qwen 只决定优化策略；SciPy 优化器求连续变量；ICRP registry 是唯一前向模型来源。四者的权限互不重叠。
 
 ## ICRP 模型注册表
 
@@ -77,7 +91,8 @@ NNDC NuDat 是美国 Brookhaven National Laboratory 的核素数据库：
 - `src/multi_nuclide_llm_optimizer.py`：病例 schema、ICRP 检索上下文、数值反演、算子审计和外层循环。
 - `src/train_llm_gate.py`：训练 MLP 的二分类 gate。
 - `src/train_qwen_lora.py`：监督式 operator SFT LoRA baseline。
-- `src/train_qwen_grpo.py`：基于外部 ODE reward 的最小 GRPO/组相对策略梯度实现。
+- `src/train_qwen_grpo.py`：被联合训练器复用的 GRPO 编码、采样和 reward helper；云端不要单独启动它。
+- `src/train_joint_grpo.py`：当前唯一的 MLP gate + Qwen LoRA 联合训练入口。
 - `src/build_llm_preference_dataset.py`：固定数值状态下枚举安全算子，建立 counterfactual reward 数据。
 - `src/evaluate_operator_preferences.py`：检查 preference reward、regret 与 forward-budget 统计。
 - `src/normalize_case_time_origin.py`：将无可靠暴露原点的结构化病例统一到明确的时间坐标。
@@ -125,10 +140,10 @@ E:\Miniforge\envs\medicine\python.exe src\run_ode_dataset_pipeline.py `
 
 ## 当前进度与限制
 
-已完成：固定 ICRP 137 碘/铯模型、来源校验、ICRP v2 检索、MLP gate 接口、Qwen operator planner、ODE 数值反演、候选点审计、偏好数据脚本和最小 operator-level GRPO trainer。正式 Qwen 主线要求先按训练文档生成 `models/llm_gate_mlp_icrp.pt`；缺少该 checkpoint 时应显式训练，不能回退到旧 gate。
+已完成：固定 ICRP 137 碘/铯模型、来源校验、ICRP v2 检索、MLP gate 接口、确定性 fallback、Qwen operator planner、ODE 数值反演、候选点审计、偏好数据脚本和最小 operator-level GRPO trainer。当前本地 checkpoint 是 20 个训练病例和 5 个验证病例上的 warm-start smoke，不能用于泛化结论。正式 Qwen 主线要求先按训练文档生成 `models/llm_gate_mlp_icrp.pt`；缺少该 checkpoint 时应显式训练，不能回退到旧 gate。
 
 尚未完成：临床验证、剂量学输出、真正 route-specific ingestion/inhalation composite model、把每条 GRPO 候选点在线送入 ODE 重新评分、规模化多 GPU GRPO、专家复核全部自动抽取事实。上述内容不能由 Qwen 自行补齐。
 
 项目的创新点应表述为“外部 ICRP 固定验证器约束下的语言模型数值优化策略学习”，而不是“LLM 发现任意生物动力学模型”。
 
-训练、输入输出、奖励和云端命令见 [`docs/TRAINING.md`](docs/TRAINING.md)。
+训练、输入输出、奖励、采样日志和云端命令见 [`docs/cloud_training.md`](docs/cloud_training.md)。当前可直接交接的本地 warm-start 数据和 checkpoint 也记录在该文档的“当前本地交接状态”章节。

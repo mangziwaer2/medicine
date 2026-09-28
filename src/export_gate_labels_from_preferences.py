@@ -63,8 +63,12 @@ def make_label(
         adjusted_call_reward(best_call)
         if best_call is not None else float("-inf")
     )
-    # SKIP_LLM incurs neither numerical search cost nor LLM latency.
-    skip_reward = 0.0
+    # SKIP_LLM executes the deterministic fallback operator recorded by the
+    # preference builder.  Its reward must be measured by the same fixed ODE
+    # executor; using zero would teach the gate to stop rather than to skip
+    # the LLM while continuing numerical optimization.
+    skip_baseline = row.get("skip_baseline", {})
+    skip_reward = float(skip_baseline.get("reward", 0.0))
     label = (
         "CALL_LLM"
         if best_call is not None and best_call_reward > skip_reward + margin
@@ -85,6 +89,10 @@ def make_label(
         ),
         "gate_label": label,
         "skip_reward": skip_reward,
+        "skip_baseline_operator": skip_baseline.get("operator"),
+        "skip_baseline_forward_predict_calls": skip_baseline.get(
+            "forward_predict_calls"
+        ),
         "best_call_reward": (
             best_call_reward if best_call is not None else None
         ),

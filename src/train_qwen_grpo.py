@@ -25,13 +25,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 try:
     from .multi_nuclide_llm_optimizer import _extract_json_object
-    from .train_qwen_lora import _adapter_state, _replace_target_modules
+    from .train_qwen_lora import _adapter_state, _replace_target_modules, load_lora_adapter
 except ImportError:
     from multi_nuclide_llm_optimizer import _extract_json_object
-    from train_qwen_lora import _adapter_state, _replace_target_modules
+    from train_qwen_lora import _adapter_state, _replace_target_modules, load_lora_adapter
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SYSTEM_PROMPT = "You are a scientific optimization planner. Return only valid JSON."
 
 
 def read_rows(path: Path, split: str | None = None) -> List[Dict[str, Any]]:
@@ -50,6 +51,57 @@ def prompt_for(row: Dict[str, Any]) -> str:
     if not value:
         raise ValueError("GRPO row has no prompt field.")
     return str(value)
+
+
+def generation_inputs(tokenizer: Any, prompt: str, max_length: int) -> Dict[str, torch.Tensor]:
+    """Encode a planner prompt exactly as it was formatted for SFT/QwenClient."""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": str(prompt)},
+    ]
+    try:
+        encoded = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            enable_thinking=False,
+            return_dict=True,
+            return_tensors="pt",
+        )
+    except TypeError:
+        try:
+            encoded = tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+        except TypeError:
+            encoded = tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            )
+    if hasattr(encoded, "items"):
+        result = {key: value for key, value in encoded.items() if isinstance(value, torch.Tensor)}
+    else:
+        result = {"input_ids": encoded if isinstance(encoded, torch.Tensor) else torch.tensor(encoded)}
+    if result["input_ids"].ndim == 1:
+        result = {key: value.unsqueeze(0) for key, value in result.items()}
+    if "attention_mask" not in result:
+        result["attention_mask"] = result["input_ids"].ne(tokenizer.pad_token_id).long()
+    # Keep the end of the numerical state/context, which is more useful than
+    # truncating the current state away from the right side of the prompt.
+    if result["input_ids"].shape[-1] > max_length:
+        head = max(1, int(max_length * 0.68))
+        tail = max(1, max_length - head)
+        result = {
+            key: torch.cat((value[..., :head], value[..., -tail:]), dim=-1)
+            for key, value in result.items()
+        }
+    return result
 
 
 PROPOSAL_KEYS = {
@@ -234,19 +286,30 @@ def _sequence_logprob(
     prompt_length: int,
     pad_token_id: int,
 ) -> torch.Tensor:
+    # Calling a causal LM normally materializes logits for every prompt token
+    # and the full vocabulary.  That is unnecessarily large for Qwen (and can
+    # exceed a local 6-8 GB GPU).  Compute hidden states once, then project
+    # only the generated response positions through lm_head.
     attention = sequences.ne(pad_token_id).long()
-    output = model(input_ids=sequences, attention_mask=attention, use_cache=False)
-    log_probs = torch.log_softmax(output.logits[:, :-1, :], dim=-1)
-    targets = sequences[:, 1:]
-    token_log_probs = log_probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
-    mask = attention[:, 1:].bool()
-    response_mask = torch.zeros_like(mask)
     start = max(0, int(prompt_length) - 1)
-    response_mask[:, start:] = True
-    mask &= response_mask
-    mask &= targets.ne(pad_token_id)
-    denominator = mask.sum(dim=1).clamp_min(1)
-    return (token_log_probs * mask).sum(dim=1) / denominator
+    targets = sequences[:, start + 1:]
+    target_mask = attention[:, start + 1:].bool() & targets.ne(pad_token_id)
+    if hasattr(model, "model") and hasattr(model, "lm_head"):
+        hidden_output = model.model(
+            input_ids=sequences,
+            attention_mask=attention,
+            use_cache=False,
+            return_dict=True,
+        )
+        hidden = hidden_output.last_hidden_state[:, start:-1, :]
+        logits = model.lm_head(hidden)
+    else:
+        output = model(input_ids=sequences, attention_mask=attention, use_cache=False)
+        logits = output.logits[:, start:-1, :]
+    log_probs = torch.log_softmax(logits.float(), dim=-1)
+    token_log_probs = log_probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+    denominator = target_mask.sum(dim=1).clamp_min(1)
+    return (token_log_probs * target_mask).sum(dim=1) / denominator
 
 
 def main() -> None:
@@ -257,17 +320,21 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=ROOT / "models" / "qwen3_operator_grpo_icrp_v1",
+        default=ROOT / "models" / "qwen3_operator_grpo_icrp_cloud_v1",
     )
     parser.add_argument("--group-size", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--learning-rate", type=float, default=1e-6)
-    parser.add_argument("--rank", type=int, default=8)
-    parser.add_argument("--alpha", type=float, default=16.0)
+    parser.add_argument("--rank", type=int, default=None)
+    parser.add_argument("--alpha", type=float, default=None)
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--llm-adapter-path", type=Path)
+    parser.add_argument("--sample-log", type=Path)
+    parser.add_argument("--readable-log", type=Path)
+    parser.add_argument("--log-every", type=int, default=10)
     args = parser.parse_args()
 
     source = args.input if args.input.is_absolute() else ROOT / args.input
@@ -282,6 +349,14 @@ def main() -> None:
     torch.manual_seed(args.seed)
     model_path = args.model_path if args.model_path.is_absolute() else ROOT / args.model_path
     output_dir = args.output_dir if args.output_dir.is_absolute() else ROOT / args.output_dir
+    adapter_path = None
+    adapter_metadata: Dict[str, Any] = {}
+    if args.llm_adapter_path:
+        adapter_path = args.llm_adapter_path if args.llm_adapter_path.is_absolute() else ROOT / args.llm_adapter_path
+        payload = torch.load(str(adapter_path.resolve()), map_location="cpu", weights_only=True)
+        adapter_metadata = dict(payload.get("metadata", {}))
+    rank = int(args.rank if args.rank is not None else adapter_metadata.get("rank", 8))
+    alpha = float(args.alpha if args.alpha is not None else adapter_metadata.get("alpha", 16.0))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True, trust_remote_code=True)
@@ -294,10 +369,12 @@ def main() -> None:
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     replaced = _replace_target_modules(
-        model, args.rank, args.alpha, 0.05, ("q_proj", "v_proj")
+        model, rank, alpha, 0.05, ("q_proj", "v_proj")
     )
     if not replaced:
         raise RuntimeError("No Qwen q_proj/v_proj modules were replaced for LoRA.")
+    if args.llm_adapter_path:
+        load_lora_adapter(model, adapter_path.resolve())
     model.config.use_cache = False
     if hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
@@ -308,9 +385,7 @@ def main() -> None:
     for step in range(max(1, args.steps)):
         row = rows[step % len(rows)]
         prompt = prompt_for(row)
-        encoded = tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=args.max_length
-        )
+        encoded = generation_inputs(tokenizer, prompt, args.max_length)
         input_ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)
         with torch.no_grad():
@@ -351,7 +426,7 @@ def main() -> None:
             "valid_output_fraction": float(sum(operator_from_text(text) is not None for text in texts) / len(texts)),
         }
         history.append(record)
-        if step == 0 or (step + 1) % 10 == 0:
+        if step == 0 or (step + 1) % max(1, args.log_every) == 0:
             print(json.dumps(record, ensure_ascii=False))
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +436,8 @@ def main() -> None:
         "group_size": args.group_size,
         "steps": args.steps,
         "learning_rate": args.learning_rate,
+        "rank": rank,
+        "alpha": alpha,
         "target_modules": ["q_proj", "v_proj"],
         "replaced_modules": replaced,
         "split": args.split,

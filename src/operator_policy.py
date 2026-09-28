@@ -40,6 +40,9 @@ FEATURE_NAMES = (
     "candidate_improved_fraction",
 )
 
+# SKIP_LLM means execute the deterministic fallback operator.  It is not an
+# unconditional stop; STOP_CONVERGED/STOP_UNIDENTIFIABLE remain safety actions
+# emitted by the planner when the numerical state requires termination.
 GATE_ACTIONS = ("SKIP_LLM", "CALL_LLM")
 
 

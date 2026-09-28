@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="8f1e82b6-f60d-48a4-ac24-4174815ad3c2" name="更改" comment="" />
+    <list default="true" id="8f1e82b6-f60d-48a4-ac24-4174815ad3c2" name="更改" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/build_llm_preference_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/build_llm_preference_dataset.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/export_gate_labels_from_preferences.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/export_gate_labels_from_preferences.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/multi_nuclide_llm_optimizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/multi_nuclide_llm_optimizer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/operator_policy.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/operator_policy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/train_llm_gate.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/train_llm_gate.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/train_qwen_grpo.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/train_qwen_grpo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/train_qwen_lora.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/train_qwen_lora.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 2
@@ -24,7 +38,9 @@
     "Python.debug_pipeline.executor": "Debug",
     "Python.multi_nuclide_llm_optimizer.executor": "Debug",
     "Python.run_ode_dataset_pipeline.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true"
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "git-widget-placeholder": "main"
   }
 }]]></component>
   <component name="RunManager" selected="Python.debug_pipeline">
@@ -175,7 +191,7 @@
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/src/multi_nuclide_llm_optimizer.py</url>
-          <line>2539</line>
+          <line>2697</line>
           <option name="timeStamp" value="2" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
@@ -190,7 +206,7 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/src/multi_nuclide_llm_optimizer.py</url>
-          <line>2012</line>
+          <line>2011</line>
           <option name="timeStamp" value="8" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
@@ -202,6 +218,11 @@
           <url>file://$PROJECT_DIR$/src/debug_pipeline.py</url>
           <line>50</line>
           <option name="timeStamp" value="18" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/debug_pipeline.py</url>
+          <line>75</line>
+          <option name="timeStamp" value="19" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

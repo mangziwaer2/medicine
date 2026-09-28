@@ -1,9 +1,9 @@
 """Train the binary MLP that decides whether to invoke the LLM planner.
 
-Counterfactual labels are converted as follows:
-
-- STOP_CONVERGED / STOP_UNIDENTIFIABLE -> SKIP_LLM
-- any executable recovery/search operator -> CALL_LLM
+Counterfactual labels compare the measured reward of a deterministic
+fallback operator with the best LLM operator. ``SKIP_LLM`` means execute the
+fallback; it is not an unconditional stop. Safety-only STOP decisions remain
+terminal planner actions.
 
 The gate never selects the optimization operator. That decision belongs to
 the LLM when the gate outputs CALL_LLM.

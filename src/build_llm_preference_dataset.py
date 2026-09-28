@@ -412,6 +412,54 @@ def _evaluate_state(
     )
     candidate_proposal = _candidate_proposal(case, state)
     objective_before = float(state.get("objective_score", float("inf")))
+
+    # Evaluate the non-LLM fallback from the same incumbent state.  This is
+    # the counterfactual baseline for the gate: SKIP_LLM means continue with
+    # this deterministic operator, not stop and not a synthetic reward of 0.
+    skip_plan, skip_info = evaluator.propose(case, history)
+    skip_operator = str(skip_plan.get("operator", ""))
+    if bool(skip_plan.get("stop", False)):
+        skip_objective_after = objective_before
+        skip_forward_calls = 0
+        skip_wall_time_s = 0.0
+        skip_status = "terminal"
+    else:
+        skip_plan = _limit_plan_budget(skip_plan, counterfactual_budget)
+        skip_result = execute_numerical_plan(
+            case,
+            skip_plan,
+            forward_model,
+            seed=seed + 900000,
+        )
+        skip_objective_after = float(
+            skip_result.get("objective_score", float("inf"))
+        )
+        skip_forward_calls = int(
+            skip_result.get("total_forward_predict_calls", 0)
+        )
+        skip_wall_time_s = float(skip_result.get("numerical_wall_time_s", 0.0))
+        skip_status = str(skip_result.get("status", "unknown"))
+    skip_reward, skip_components = _reward(
+        objective_before,
+        skip_objective_after,
+        skip_forward_calls,
+        counterfactual_budget,
+        0.0,
+        beta,
+        gamma,
+    )
+    skip_baseline = {
+        "operator": skip_operator,
+        "status": skip_status,
+        "objective_before": objective_before,
+        "objective_after": skip_objective_after,
+        "objective_improvement": objective_before - skip_objective_after,
+        "forward_predict_calls": skip_forward_calls,
+        "numerical_wall_time_s": skip_wall_time_s,
+        "reward": skip_reward,
+        "reward_components": skip_components,
+        "planner_info": skip_info,
+    }
     candidates: List[Dict[str, Any]] = []
     llm_executed_operator = (
         str(llm_plan.get("operator")) if isinstance(llm_plan, dict) else None
@@ -605,6 +653,7 @@ def _evaluate_state(
             "counterfactual_forward_budget": counterfactual_budget,
         },
         "candidate_operators": candidates,
+        "skip_baseline": skip_baseline,
         "chosen": chosen,
         "rejected": rejected,
         "preference_pair_usable": preference_usable,

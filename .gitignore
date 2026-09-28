@@ -2,3 +2,5 @@ models/
 docs/
 data/
 temp/
+__pycache__/
+*.py[cod]

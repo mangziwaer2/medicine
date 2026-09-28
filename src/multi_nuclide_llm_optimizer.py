@@ -525,7 +525,7 @@ def _compact_planner_knowledge(
     case: CaseInput,
     knowledge_base: StructuredKnowledgeBase,
     *,
-    icrp_text_limit: int = 400,
+    icrp_text_limit: int = 180,
 ) -> Dict[str, Any]:
     """Build a bounded planner context for small local language models.
 
@@ -550,10 +550,10 @@ def _compact_planner_knowledge(
                 "intake_compartment": model.get("intake_compartment"),
                 "observation_types": model.get("observation_types", []),
                 "transfer_count": model.get("transfer_count", 0),
-                "metadata": {
-                    key: value
-                    for key, value in model.get("metadata", {}).items()
-                    if key.startswith("meta_")
+                "source": {
+                    "publication": model.get("metadata", {}).get("meta_parameter_source"),
+                    "pages": model.get("metadata", {}).get("meta_source_pages"),
+                    "table": model.get("metadata", {}).get("meta_source_table"),
                 },
             })
         compact["nuclides"].append({
@@ -577,9 +577,8 @@ def _compact_planner_knowledge(
                             "category": hit.get("category"),
                             "retrieval_score": hit.get("retrieval_score"),
                             "text": str(hit.get("text", ""))[:icrp_text_limit],
-                            "official_url": hit.get("official_url"),
                         }
-                        for hit in record.get("hits", [])[:2]
+                        for hit in record.get("hits", [])[:1]
                     ],
                 }
                 for record in icrp.get("records", [])
@@ -2098,6 +2097,35 @@ def _operator_selection_prompt(
             "censored_count": sum(obs.is_censored for obs in item.observations),
         } for item in case.nuclides],
     }
+    # Keep the prompt within the context budget of the local model. The full
+    # numerical state is persisted in the trace, but the planner only needs
+    # fields that can change the next operator decision.
+    compact_state = {
+        "objective_score": state.get("objective_score"),
+        "fit_score": state.get("fit_score"),
+        "failed_nuclide_count": state.get("failed_nuclide_count"),
+        "forward_predict_calls": state.get("forward_predict_calls"),
+        "optimizer_iterations": state.get("optimizer_iterations"),
+        "per_nuclide": [
+            {
+                key: row.get(key)
+                for key in (
+                    "nuclide",
+                    "best_model_id",
+                    "weighted_loss",
+                    "log10_intake",
+                    "intake_time_d",
+                    "relative_model_gap",
+                    "intake_boundary_hit",
+                    "time_boundary_hit",
+                    "candidate_point_count",
+                    "candidate_improved_incumbent",
+                )
+                if key in row
+            }
+            for row in state.get("per_nuclide", [])
+        ],
+    }
     example_nuclide = case.nuclides[0].nuclide if case.nuclides else "Cs-137"
     example_models = knowledge_base.compatible_model_ids(case.nuclides[0]) if case.nuclides else []
     example_model = example_models[0] if example_models else "registered_model_id"
@@ -2135,7 +2163,7 @@ Visible case summary:
 {json.dumps(visible_case, ensure_ascii=True)}
 
 Current optimization state:
-{json.dumps(state, ensure_ascii=True)}
+{json.dumps(compact_state, ensure_ascii=True)}
 
 Previous numerical rounds:
 {json.dumps(compact_history, ensure_ascii=True)}
@@ -2143,6 +2171,124 @@ Previous numerical rounds:
 Bounded registered-model and ICRP context:
 {json.dumps(_compact_planner_knowledge(case, knowledge_base), ensure_ascii=True)}
 """
+
+
+_LLM_PROPOSAL_KEYS = {
+    "operator",
+    "parameter_names",
+    "parameter_bounds",
+    "model_ids_by_nuclide",
+    "candidate_points",
+    "reason",
+}
+_LLM_POINT_KEYS = {"nuclide", "model_id", "log10_intake", "intake_time_d"}
+_LLM_PROTECTED_KEYS = {
+    "compartment",
+    "compartments",
+    "transfer",
+    "transfers",
+    "rate",
+    "rate_per_d",
+    "prior",
+    "physical_decay",
+    "physical_decay_constant_per_d",
+    "measurement_mapping",
+    "ode",
+    "ode_code",
+    "python",
+    "code",
+}
+
+
+def _llm_value_has_protected_key(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            str(key).lower() in _LLM_PROTECTED_KEYS
+            or _llm_value_has_protected_key(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_llm_value_has_protected_key(item) for item in value)
+    return False
+
+
+def _validate_llm_proposal(
+    case: CaseInput,
+    knowledge_base: StructuredKnowledgeBase,
+    proposal: Any,
+    allowed_operators: Sequence[str],
+) -> Dict[str, Any]:
+    """Audit the complete online proposal before translating it to an action."""
+    if not isinstance(proposal, dict):
+        raise ValueError("LLM output must be a JSON object.")
+    if set(proposal) - _LLM_PROPOSAL_KEYS or _llm_value_has_protected_key(proposal):
+        raise ValueError("LLM proposal contains unknown or protected fields.")
+    operator = str(proposal.get("operator", ""))
+    if operator not in {str(item) for item in allowed_operators}:
+        raise ValueError(f"LLM operator {operator!r} is outside the allowed whitelist.")
+
+    names = proposal.get("parameter_names", list(PARAMETER_BLOCKS["BASIC"]))
+    if names != list(PARAMETER_BLOCKS["BASIC"]):
+        raise ValueError("Only the fixed basic intake parameter block is allowed.")
+
+    bounds = proposal.get("parameter_bounds", {})
+    if not isinstance(bounds, dict) or set(bounds) - set(names):
+        raise ValueError("parameter_bounds contains an unsupported parameter.")
+    global_bounds = {
+        "log10_intake": (0.0, 12.0),
+        "intake_time_d": (-3650.0, 3650.0),
+    }
+    for name, raw_pair in bounds.items():
+        if not isinstance(raw_pair, (list, tuple)) or len(raw_pair) != 2:
+            raise ValueError(f"Invalid bounds for {name!r}.")
+        low = _finite_float(raw_pair[0])
+        high = _finite_float(raw_pair[1])
+        floor, ceiling = global_bounds[name]
+        if low is None or high is None or not floor <= low < high <= ceiling:
+            raise ValueError(f"Bounds for {name!r} exceed the global legal range.")
+
+    compatible_by_nuclide = {
+        item.nuclide: set(knowledge_base.compatible_model_ids(item))
+        for item in case.nuclides
+    }
+    selected = proposal.get("model_ids_by_nuclide", {})
+    if not isinstance(selected, dict):
+        raise ValueError("model_ids_by_nuclide must be an object.")
+    for nuclide, model_ids in selected.items():
+        if isinstance(model_ids, str):
+            model_ids = [model_ids]
+        if (
+            str(nuclide) not in compatible_by_nuclide
+            or not isinstance(model_ids, list)
+            or not model_ids
+            or any(str(model_id) not in compatible_by_nuclide[str(nuclide)] for model_id in model_ids)
+        ):
+            raise ValueError(f"Unregistered or incompatible model for {nuclide!r}.")
+
+    points = proposal.get("candidate_points", [])
+    if not isinstance(points, list) or len(points) > 32:
+        raise ValueError("candidate_points must be a list of at most 32 points.")
+    if operator == "EVALUATE_CANDIDATE_POINTS" and not points:
+        raise ValueError("EVALUATE_CANDIDATE_POINTS requires at least one point.")
+    for point in points:
+        if not isinstance(point, dict) or set(point) - _LLM_POINT_KEYS:
+            raise ValueError("Candidate point contains unsupported fields.")
+        nuclide = str(point.get("nuclide", ""))
+        if nuclide not in compatible_by_nuclide:
+            raise ValueError(f"Candidate point uses unknown nuclide {nuclide!r}.")
+        model_id = point.get("model_id")
+        if model_id is not None and str(model_id) not in compatible_by_nuclide[nuclide]:
+            raise ValueError(f"Candidate point uses an incompatible model for {nuclide!r}.")
+        intake = _finite_float(point.get("log10_intake"))
+        intake_time = _finite_float(point.get("intake_time_d"))
+        if (
+            intake is None
+            or intake_time is None
+            or not 0.0 <= intake <= 12.0
+            or not -3650.0 <= intake_time <= 3650.0
+        ):
+            raise ValueError("Candidate point is outside the global legal range.")
+    return proposal
 
 
 class LLMGatedOperatorPlanner(AdaptiveOperatorPlanner):
@@ -2249,13 +2395,21 @@ class LLMGatedOperatorPlanner(AdaptiveOperatorPlanner):
                 f"MLP gate skipped LLM: CALL_LLM probability "
                 f"{call_probability:.4f} < {self.gate_threshold:.4f}."
             )
-            return self._safe_stop(
-                case,
-                history,
-                state,
-                reason,
-                {"source": "mlp_gate", "llm_invoked": False, **gate_info},
-            )
+            # Skipping the LLM means using the deterministic operator policy,
+            # not terminating the numerical search.  Only the safety rules
+            # above are allowed to produce an unconditional STOP decision.
+            fallback_plan, fallback_info = super().propose(case, history)
+            fallback_info = {
+                **fallback_info,
+                "source": "mlp_gate_fallback",
+                "llm_invoked": False,
+                "gate_decision": "SKIP_LLM",
+                "fallback_operator": fallback_plan.get("operator"),
+                "reason": reason,
+                **gate_info,
+            }
+            fallback_plan.setdefault("operator_reason", reason)
+            return fallback_plan, fallback_info
 
         llm_allowed = {
             operator for operator in allowed if not operator.startswith("STOP_")
@@ -2280,13 +2434,13 @@ class LLMGatedOperatorPlanner(AdaptiveOperatorPlanner):
         )
         raw_text = self.qwen_client.generate(prompt, max_new_tokens=256)
         try:
-            proposal = _extract_json_object(raw_text)
-            operator = str(proposal.get("operator", ""))
-            if operator not in llm_allowed:
-                raise ValueError(
-                    f"LLM operator {operator!r} is outside whitelist "
-                    f"{sorted(llm_allowed)}."
-                )
+            proposal = _validate_llm_proposal(
+                case,
+                self.knowledge_base,
+                _extract_json_object(raw_text),
+                sorted(llm_allowed),
+            )
+            operator = str(proposal["operator"])
             reason = str(proposal.get("reason", "LLM selected a whitelisted operator."))
             parameter_names = proposal.get("parameter_names", ["log10_intake", "intake_time_d"])
             if isinstance(parameter_names, str):
@@ -2333,21 +2487,25 @@ class LLMGatedOperatorPlanner(AdaptiveOperatorPlanner):
         except (ValueError, json.JSONDecodeError, TypeError) as error:
             if not self.allow_fallback:
                 raise
-            reason = f"Invalid LLM operator output; stopped safely: {error}"
-            return self._safe_stop(
-                case,
-                history,
-                state,
-                reason,
-                {
-                    "source": "qwen_operator_invalid",
-                    "llm_invoked": True,
-                    "prompt": prompt,
-                    "raw_output": raw_text,
-                    "error": str(error),
-                    **gate_info,
-                },
+            reason = (
+                f"Invalid LLM operator output; rejected and delegated to the "
+                f"deterministic fallback planner: {error}"
             )
+            fallback_plan, fallback_info = super().propose(case, history)
+            fallback_info = {
+                **fallback_info,
+                "source": "qwen_operator_invalid_fallback",
+                "llm_invoked": True,
+                "gate_decision": "CALL_LLM",
+                "fallback_operator": fallback_plan.get("operator"),
+                "prompt": prompt,
+                "raw_output": raw_text,
+                "error": str(error),
+                "reason": reason,
+                **gate_info,
+            }
+            fallback_plan.setdefault("operator_reason", reason)
+            return fallback_plan, fallback_info
 
 
 def _best_round_summary(tool_result: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -2542,7 +2700,11 @@ def run_outer_loop(
     )
     final_tool_result = best_round["tool_result"]
     llm_sources = {
-        "qwen", "heuristic_fallback", "qwen_operator", "qwen_operator_invalid"
+        "qwen",
+        "heuristic_fallback",
+        "qwen_operator",
+        "qwen_operator_invalid",
+        "qwen_operator_invalid_fallback",
     }
     llm_call_count = sum(
         1 for item in history

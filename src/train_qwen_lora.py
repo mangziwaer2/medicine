@@ -85,10 +85,16 @@ def load_lora_adapter(model: nn.Module, path: Path) -> Dict[str, Any]:
     payload = torch.load(path, map_location="cpu", weights_only=False)
     state = payload.get("adapter_state", payload)
     missing, unexpected = model.load_state_dict(state, strict=False)
-    if missing:
-        raise RuntimeError(f"Missing LoRA tensors while loading {path}: {missing[:5]}")
+    missing_adapter = [
+        name for name in missing if "lora_A" in name or "lora_B" in name
+    ]
+    if missing_adapter:
+        raise RuntimeError(
+            f"Missing LoRA tensors while loading {path}: {missing_adapter[:5]}"
+        )
     return {
         "metadata": payload.get("metadata", {}),
+        "missing_base_parameters": len(missing) - len(missing_adapter),
         "unexpected_keys": unexpected,
     }
 
@@ -139,15 +145,20 @@ class SFTDataset(Dataset):
 
         prompt_ids = ids(prompt)
         full_ids = ids(full)
-        if len(full_ids) > self.max_length:
-            removed = len(full_ids) - self.max_length
-            full_ids = full_ids[-self.max_length :]
-            prompt_len = max(0, len(prompt_ids) - removed)
+        prompt_len = min(len(prompt_ids), len(full_ids))
+        response_ids = full_ids[prompt_len:]
+        if len(response_ids) >= self.max_length:
+            response_ids = response_ids[: self.max_length]
+            prompt_ids = []
         else:
-            prompt_len = min(len(prompt_ids), len(full_ids))
-        labels = [-100] * prompt_len + full_ids[prompt_len:]
-        labels = labels[: self.max_length]
-        full_ids = full_ids[: self.max_length]
+            available_prompt = self.max_length - len(response_ids)
+            if len(prompt_ids) > available_prompt:
+                head = max(1, int(available_prompt * 0.68))
+                tail = max(1, available_prompt - head)
+                prompt_ids = prompt_ids[:head] + prompt_ids[-tail:]
+        full_ids = prompt_ids + response_ids
+        prompt_len = len(prompt_ids)
+        labels = [-100] * prompt_len + response_ids
         return {
             "input_ids": torch.tensor(full_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
@@ -184,9 +195,14 @@ def main() -> None:
     parser.add_argument("--model-path", type=Path, default=ROOT / "models" / "Qwen3-1.7B")
     parser.add_argument("--sft-path", type=Path, default=ROOT / "temp" / "operator_oracle_v3_train_validation_48.sft.jsonl")
     parser.add_argument(
+        "--validation-sft-path",
+        type=Path,
+        help="Optional separate JSONL source for validation examples.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
-        default=ROOT / "models" / "qwen3_operator_lora_icrp_v1",
+        default=ROOT / "models" / "qwen3_operator_lora_icrp_cloud_v1",
     )
     parser.add_argument("--rank", type=int, default=8)
     parser.add_argument("--alpha", type=float, default=16.0)
@@ -197,11 +213,15 @@ def main() -> None:
     parser.add_argument("--max-length", type=int, default=1536)
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--smoke", action="store_true", help="One train and one validation step only.")
+    parser.add_argument("--patience", type=int, default=3)
     args = parser.parse_args()
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     model_path = args.model_path if args.model_path.is_absolute() else ROOT / args.model_path
     sft_path = args.sft_path if args.sft_path.is_absolute() else ROOT / args.sft_path
+    validation_sft_path = None
+    if args.validation_sft_path:
+        validation_sft_path = args.validation_sft_path if args.validation_sft_path.is_absolute() else ROOT / args.validation_sft_path
     output_dir = args.output_dir if args.output_dir.is_absolute() else ROOT / args.output_dir
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
@@ -226,7 +246,7 @@ def main() -> None:
     # Replacement creates fresh A/B tensors, so move only after insertion.
     model.to(device)
     train_data = SFTDataset(sft_path, tokenizer, args.max_length, "train")
-    valid_data = SFTDataset(sft_path, tokenizer, args.max_length, "validation")
+    valid_data = SFTDataset(validation_sft_path or sft_path, tokenizer, args.max_length, "validation")
     if not train_data or not valid_data:
         raise RuntimeError(f"Need non-empty train/validation splits, got {len(train_data)}/{len(valid_data)}")
     loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, collate_fn=lambda x: _collate(x, tokenizer.pad_token_id))
@@ -235,6 +255,9 @@ def main() -> None:
     optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
     scaler = torch.amp.GradScaler("cuda", enabled=False)
     history: List[Dict[str, Any]] = []
+    best_validation_loss = float("inf")
+    best_state = None
+    bad_epochs = 0
     for epoch in range(max(1, args.epochs)):
         model.train()
         train_losses: List[float] = []
@@ -257,17 +280,28 @@ def main() -> None:
         row = {"epoch": epoch + 1, "train_loss": sum(train_losses) / len(train_losses), "validation_loss": sum(valid_losses) / len(valid_losses)}
         history.append(row)
         print(json.dumps(row, ensure_ascii=False))
+        if row["validation_loss"] < best_validation_loss:
+            best_validation_loss = row["validation_loss"]
+            best_state = _adapter_state(model)
+            bad_epochs = 0
+        else:
+            bad_epochs += 1
         if args.smoke:
             break
+        if bad_epochs >= max(1, args.patience):
+            break
     output_dir.mkdir(parents=True, exist_ok=True)
+    if best_state is None:
+        best_state = _adapter_state(model)
     metadata = {
         "base_model": str(model_path), "rank": args.rank, "alpha": args.alpha,
         "dropout": args.dropout, "target_modules": list(targets),
         "replaced_modules": replaced, "train_count": len(train_data),
         "validation_count": len(valid_data), "history": history,
+        "best_validation_loss": best_validation_loss,
         "clinical_use": False,
     }
-    torch.save({"adapter_state": _adapter_state(model), "metadata": metadata}, output_dir / "adapter.pt")
+    torch.save({"adapter_state": best_state, "metadata": metadata}, output_dir / "adapter.pt")
     (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"output": str(output_dir), "adapter": str(output_dir / "adapter.pt"), "trainable_parameters": sum(p.numel() for p in trainable), "device": device, "history": history}, ensure_ascii=False, indent=2))
 
