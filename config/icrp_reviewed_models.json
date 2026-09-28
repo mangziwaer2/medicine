@@ -1,0 +1,756 @@
+{
+  "schema_version": "icrp_reviewed_model_config_v1",
+  "config_purpose": "Domain-expert-maintained ICRP biokinetic model and measurement configuration. The execution code does not certify medical correctness.",
+  "domain_review_status": "professional_review_required",
+  "registry_metadata": {
+    "meta_verification_status": "verified_icrp_transcription",
+    "meta_registry_kind": "icrp_verified",
+    "meta_clinical_use": "false",
+    "meta_purpose": "theoretical reference-worker model; not a clinical dose assessment",
+    "meta_measurement_adapter_status": "fixed_engineering_projection_not_icrp_dose_coefficient",
+    "meta_measurement_adapter": "output transfers are used as the available linear ODE bioassay projection"
+  },
+  "models": [
+    {
+      "model_id": "ICRP137_I131_systemic_reference_worker",
+      "nuclide": "I-131",
+      "compartments": [
+        "Blood 1",
+        "Salivary gland",
+        "Oral cavity",
+        "Stomach wall",
+        "Stomach contents",
+        "Thyroid 1",
+        "Thyroid 2",
+        "Other 1",
+        "Other 2",
+        "Kidneys 1",
+        "Liver 1",
+        "Blood 2",
+        "Other 3",
+        "Other 4",
+        "Kidneys 2",
+        "Liver 2"
+      ],
+      "intake_compartment": "Blood 1",
+      "physical_decay_constant_per_d": 0.08642732924687598,
+      "physical_decay_source": {
+        "publication": "ICRP Publication 107",
+        "nuclide": "I-131",
+        "half_life_d": 8.02,
+        "official_url": "https://www.icrp.org/publication.asp?id=ICRP%20Publication%20107",
+        "review_note": "lambda = ln(2) / half_life_d; value retained in this config for professional review"
+      },
+      "transfers": [
+        {
+          "source": "Blood 1",
+          "target": "Thyroid 1",
+          "rate_per_d": 7.26,
+          "output": null
+        },
+        {
+          "source": "Blood 1",
+          "target": null,
+          "rate_per_d": 11.84,
+          "output": "urine"
+        },
+        {
+          "source": "Blood 1",
+          "target": "Salivary gland",
+          "rate_per_d": 5.16,
+          "output": null
+        },
+        {
+          "source": "Blood 1",
+          "target": "Stomach wall",
+          "rate_per_d": 8.6,
+          "output": null
+        },
+        {
+          "source": "Blood 1",
+          "target": "Other 1",
+          "rate_per_d": 600.0,
+          "output": null
+        },
+        {
+          "source": "Blood 1",
+          "target": "Kidneys 1",
+          "rate_per_d": 25.0,
+          "output": null
+        },
+        {
+          "source": "Blood 1",
+          "target": "Liver 1",
+          "rate_per_d": 15.0,
+          "output": null
+        },
+        {
+          "source": "Salivary gland",
+          "target": "Oral cavity",
+          "rate_per_d": 50.0,
+          "output": null
+        },
+        {
+          "source": "Stomach wall",
+          "target": "Stomach contents",
+          "rate_per_d": 50.0,
+          "output": null
+        },
+        {
+          "source": "Thyroid 1",
+          "target": "Thyroid 2",
+          "rate_per_d": 95.0,
+          "output": null
+        },
+        {
+          "source": "Thyroid 1",
+          "target": "Blood 1",
+          "rate_per_d": 36.0,
+          "output": null
+        },
+        {
+          "source": "Thyroid 2",
+          "target": "Blood 2",
+          "rate_per_d": 0.0077,
+          "output": null
+        },
+        {
+          "source": "Other 1",
+          "target": "Blood 1",
+          "rate_per_d": 330.0,
+          "output": null
+        },
+        {
+          "source": "Other 1",
+          "target": "Other 2",
+          "rate_per_d": 35.0,
+          "output": null
+        },
+        {
+          "source": "Other 2",
+          "target": "Other 1",
+          "rate_per_d": 56.0,
+          "output": null
+        },
+        {
+          "source": "Kidneys 1",
+          "target": "Blood 1",
+          "rate_per_d": 100.0,
+          "output": null
+        },
+        {
+          "source": "Liver 1",
+          "target": "Blood 1",
+          "rate_per_d": 100.0,
+          "output": null
+        },
+        {
+          "source": "Blood 2",
+          "target": "Other 3",
+          "rate_per_d": 15.0,
+          "output": null
+        },
+        {
+          "source": "Other 3",
+          "target": "Blood 2",
+          "rate_per_d": 21.0,
+          "output": null
+        },
+        {
+          "source": "Other 3",
+          "target": "Other 4",
+          "rate_per_d": 1.2,
+          "output": null
+        },
+        {
+          "source": "Other 4",
+          "target": "Other 3",
+          "rate_per_d": 0.62,
+          "output": null
+        },
+        {
+          "source": "Other 4",
+          "target": "Blood 1",
+          "rate_per_d": 0.14,
+          "output": null
+        },
+        {
+          "source": "Blood 2",
+          "target": "Kidneys 2",
+          "rate_per_d": 3.6,
+          "output": null
+        },
+        {
+          "source": "Kidneys 2",
+          "target": "Blood 2",
+          "rate_per_d": 21.0,
+          "output": null
+        },
+        {
+          "source": "Kidneys 2",
+          "target": "Blood 1",
+          "rate_per_d": 0.14,
+          "output": null
+        },
+        {
+          "source": "Blood 2",
+          "target": "Liver 2",
+          "rate_per_d": 21.0,
+          "output": null
+        },
+        {
+          "source": "Liver 2",
+          "target": "Blood 2",
+          "rate_per_d": 21.0,
+          "output": null
+        },
+        {
+          "source": "Liver 2",
+          "target": "Blood 1",
+          "rate_per_d": 0.14,
+          "output": null
+        },
+        {
+          "source": "Liver 2",
+          "target": null,
+          "rate_per_d": 0.08,
+          "output": "feces"
+        }
+      ],
+      "measurements": {
+        "24-h Urine": {
+          "kind": "interval_flux",
+          "output": "urine",
+          "window_d": 1.0
+        },
+        "24-h Feces": {
+          "kind": "interval_flux",
+          "output": "feces",
+          "window_d": 1.0
+        },
+        "Thyroid-Bioa": {
+          "kind": "sum",
+          "compartments": [
+            "Thyroid 1",
+            "Thyroid 2"
+          ]
+        },
+        "T-body": {
+          "kind": "sum",
+          "compartments": [
+            "Blood 1",
+            "Salivary gland",
+            "Oral cavity",
+            "Stomach wall",
+            "Stomach contents",
+            "Thyroid 1",
+            "Thyroid 2",
+            "Other 1",
+            "Other 2",
+            "Kidneys 1",
+            "Liver 1",
+            "Blood 2",
+            "Other 3",
+            "Other 4",
+            "Kidneys 2",
+            "Liver 2"
+          ]
+        }
+      },
+      "source": {
+        "publication": "ICRP Publication 137",
+        "document_id": "icrp_publication_137",
+        "pages": "108-109",
+        "table": "Table 5.4",
+        "official_url": "https://www.icrp.org/publication.asp?id=ICRP%20Publication%20137",
+        "sha256": "b6cb8128cb8d50461eefebb48e757f89a2560d38767597ea52c0b4bb2b54f323"
+      },
+      "route_scope": "acute_systemic_input_to_blood"
+    },
+    {
+      "model_id": "ICRP137_Cs137_systemic_reference_worker",
+      "nuclide": "Cs-137",
+      "compartments": [
+        "Plasma",
+        "Red blood cells",
+        "Skeletal muscle",
+        "Liver",
+        "Kidneys",
+        "Spleen",
+        "Pancreas",
+        "Skin",
+        "Adipose tissue",
+        "Brain",
+        "Heart wall",
+        "Lung tissue",
+        "Red marrow",
+        "Cartilage",
+        "Trabecular bone surface",
+        "Cortical bone surface",
+        "Stomach wall",
+        "Stomach contents",
+        "Small intestine wall",
+        "Small intestine contents",
+        "Right colon wall",
+        "Right colon contents",
+        "Left colon wall",
+        "Left colon contents",
+        "Rectosigmoid colon wall",
+        "Rectosigmoid colon contents",
+        "Other 1",
+        "Other 2"
+      ],
+      "intake_compartment": "Plasma",
+      "physical_decay_constant_per_d": 6.301338005090412e-05,
+      "physical_decay_source": {
+        "publication": "ICRP Publication 107",
+        "nuclide": "Cs-137",
+        "half_life_d": 11000.0,
+        "official_url": "https://www.icrp.org/publication.asp?id=ICRP%20Publication%20107",
+        "review_note": "The current value is a rounded reference value; replace with the professionally reviewed half-life if higher precision is required"
+      },
+      "transfers": [
+        {
+          "source": "Plasma",
+          "target": "Red blood cells",
+          "rate_per_d": 1.8,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Skeletal muscle",
+          "rate_per_d": 30.0,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Liver",
+          "rate_per_d": 19.5,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Kidneys",
+          "rate_per_d": 67.1,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Spleen",
+          "rate_per_d": 5.3,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Pancreas",
+          "rate_per_d": 1.77,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Skin",
+          "rate_per_d": 4.42,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Adipose tissue",
+          "rate_per_d": 8.83,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Brain",
+          "rate_per_d": 0.424,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Heart wall",
+          "rate_per_d": 14.1,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Lung tissue",
+          "rate_per_d": 4.42,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Red marrow",
+          "rate_per_d": 5.3,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Cartilage",
+          "rate_per_d": 3.0,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Trabecular bone surface",
+          "rate_per_d": 1.59,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Cortical bone surface",
+          "rate_per_d": 1.06,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Stomach wall",
+          "rate_per_d": 3.53,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Stomach contents",
+          "rate_per_d": 4.52,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Small intestine wall",
+          "rate_per_d": 35.3,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Small intestine contents",
+          "rate_per_d": 1.05,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Right colon wall",
+          "rate_per_d": 5.65,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Right colon contents",
+          "rate_per_d": 0.02,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Left colon wall",
+          "rate_per_d": 5.65,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Rectosigmoid colon wall",
+          "rate_per_d": 2.83,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Other 1",
+          "rate_per_d": 9.71,
+          "output": null
+        },
+        {
+          "source": "Plasma",
+          "target": "Other 2",
+          "rate_per_d": 0.00353,
+          "output": null
+        },
+        {
+          "source": "Red blood cells",
+          "target": "Plasma",
+          "rate_per_d": 0.257,
+          "output": null
+        },
+        {
+          "source": "Skeletal muscle",
+          "target": "Plasma",
+          "rate_per_d": 0.0751,
+          "output": null
+        },
+        {
+          "source": "Liver",
+          "target": "Plasma",
+          "rate_per_d": 2.14,
+          "output": null
+        },
+        {
+          "source": "Liver",
+          "target": "Small intestine contents",
+          "rate_per_d": 0.113,
+          "output": null
+        },
+        {
+          "source": "Kidneys",
+          "target": null,
+          "rate_per_d": 1.68,
+          "output": "urine"
+        },
+        {
+          "source": "Spleen",
+          "target": "Plasma",
+          "rate_per_d": 5.03,
+          "output": null
+        },
+        {
+          "source": "Spleen",
+          "target": "Liver",
+          "rate_per_d": 0.265,
+          "output": null
+        },
+        {
+          "source": "Pancreas",
+          "target": "Plasma",
+          "rate_per_d": 1.68,
+          "output": null
+        },
+        {
+          "source": "Pancreas",
+          "target": "Liver",
+          "rate_per_d": 0.0883,
+          "output": null
+        },
+        {
+          "source": "Skin",
+          "target": "Plasma",
+          "rate_per_d": 0.867,
+          "output": null
+        },
+        {
+          "source": "Skin",
+          "target": null,
+          "rate_per_d": 0.0159,
+          "output": "feces"
+        },
+        {
+          "source": "Adipose tissue",
+          "target": "Plasma",
+          "rate_per_d": 1.77,
+          "output": null
+        },
+        {
+          "source": "Brain",
+          "target": "Plasma",
+          "rate_per_d": 0.0848,
+          "output": null
+        },
+        {
+          "source": "Heart wall",
+          "target": "Plasma",
+          "rate_per_d": 8.07,
+          "output": null
+        },
+        {
+          "source": "Lung tissue",
+          "target": "Plasma",
+          "rate_per_d": 1.47,
+          "output": null
+        },
+        {
+          "source": "Red marrow",
+          "target": "Plasma",
+          "rate_per_d": 0.706,
+          "output": null
+        },
+        {
+          "source": "Cartilage",
+          "target": "Plasma",
+          "rate_per_d": 0.2,
+          "output": null
+        },
+        {
+          "source": "Trabecular bone surface",
+          "target": "Plasma",
+          "rate_per_d": 0.212,
+          "output": null
+        },
+        {
+          "source": "Cortical bone surface",
+          "target": "Plasma",
+          "rate_per_d": 0.212,
+          "output": null
+        },
+        {
+          "source": "Stomach wall",
+          "target": "Plasma",
+          "rate_per_d": 4.16,
+          "output": null
+        },
+        {
+          "source": "Stomach wall",
+          "target": "Liver",
+          "rate_per_d": 0.219,
+          "output": null
+        },
+        {
+          "source": "Stomach wall",
+          "target": "Stomach contents",
+          "rate_per_d": 0.21,
+          "output": null
+        },
+        {
+          "source": "Small intestine wall",
+          "target": "Plasma",
+          "rate_per_d": 9.87,
+          "output": null
+        },
+        {
+          "source": "Small intestine wall",
+          "target": "Liver",
+          "rate_per_d": 0.519,
+          "output": null
+        },
+        {
+          "source": "Small intestine wall",
+          "target": "Small intestine contents",
+          "rate_per_d": 0.21,
+          "output": null
+        },
+        {
+          "source": "Right colon wall",
+          "target": "Plasma",
+          "rate_per_d": 6.86,
+          "output": null
+        },
+        {
+          "source": "Right colon wall",
+          "target": "Liver",
+          "rate_per_d": 0.361,
+          "output": null
+        },
+        {
+          "source": "Right colon wall",
+          "target": "Right colon contents",
+          "rate_per_d": 0.21,
+          "output": null
+        },
+        {
+          "source": "Left colon wall",
+          "target": "Plasma",
+          "rate_per_d": 6.86,
+          "output": null
+        },
+        {
+          "source": "Left colon wall",
+          "target": "Liver",
+          "rate_per_d": 0.361,
+          "output": null
+        },
+        {
+          "source": "Left colon wall",
+          "target": "Left colon contents",
+          "rate_per_d": 0.21,
+          "output": null
+        },
+        {
+          "source": "Rectosigmoid colon wall",
+          "target": "Plasma",
+          "rate_per_d": 6.86,
+          "output": null
+        },
+        {
+          "source": "Rectosigmoid colon wall",
+          "target": "Liver",
+          "rate_per_d": 0.361,
+          "output": null
+        },
+        {
+          "source": "Rectosigmoid colon wall",
+          "target": "Rectosigmoid colon contents",
+          "rate_per_d": 0.21,
+          "output": null
+        },
+        {
+          "source": "Other 1",
+          "target": "Plasma",
+          "rate_per_d": 0.762,
+          "output": null
+        },
+        {
+          "source": "Other 2",
+          "target": "Plasma",
+          "rate_per_d": 0.00141,
+          "output": null
+        }
+      ],
+      "measurements": {
+        "24-h Urine": {
+          "kind": "interval_flux",
+          "output": "urine",
+          "window_d": 1.0
+        },
+        "24-h Feces": {
+          "kind": "interval_flux",
+          "output": "feces",
+          "window_d": 1.0
+        },
+        "T-body": {
+          "kind": "sum",
+          "compartments": [
+            "Plasma",
+            "Red blood cells",
+            "Skeletal muscle",
+            "Liver",
+            "Kidneys",
+            "Spleen",
+            "Pancreas",
+            "Skin",
+            "Adipose tissue",
+            "Brain",
+            "Heart wall",
+            "Lung tissue",
+            "Red marrow",
+            "Cartilage",
+            "Trabecular bone surface",
+            "Cortical bone surface",
+            "Stomach wall",
+            "Stomach contents",
+            "Small intestine wall",
+            "Small intestine contents",
+            "Right colon wall",
+            "Right colon contents",
+            "Left colon wall",
+            "Left colon contents",
+            "Rectosigmoid colon wall",
+            "Rectosigmoid colon contents",
+            "Other 1",
+            "Other 2"
+          ]
+        }
+      },
+      "source": {
+        "publication": "ICRP Publication 137",
+        "document_id": "icrp_publication_137",
+        "pages": "147-148",
+        "table": "Table 6.3",
+        "official_url": "https://www.icrp.org/publication.asp?id=ICRP%20Publication%20137",
+        "sha256": "b6cb8128cb8d50461eefebb48e757f89a2560d38767597ea52c0b4bb2b54f323"
+      },
+      "route_scope": "acute_systemic_input_to_blood"
+    }
+  ],
+  "optimization_parameters": [
+    {
+      "parameter_name": "log10_intake",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 12.0,
+      "trainable": true,
+      "llm_allowed": true,
+      "description": "log10 of acute systemic activity input in Bq"
+    },
+    {
+      "parameter_name": "intake_time_d",
+      "default": 0.5,
+      "min": -3650.0,
+      "max": 3650.0,
+      "trainable": true,
+      "llm_allowed": true,
+      "description": "time of systemic input relative to case origin, in days"
+    }
+  ]
+}
