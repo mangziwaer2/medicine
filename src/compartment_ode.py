@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import csv
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -118,20 +119,32 @@ class CompartmentModel:
             initial_state: np.ndarray,
             targets: Sequence[float],
         ) -> Dict[float, np.ndarray]:
-            if segment_end <= segment_start:
+            # Inverse optimization can place intake_time almost exactly on an
+            # observation/window endpoint. Avoid integrating machine-epsilon
+            # intervals, which makes LSODA emit ``t+h=t`` diagnostics.
+            interval = float(segment_end) - float(segment_start)
+            tolerance = 1e-12 * max(
+                1.0, abs(float(segment_start)), abs(float(segment_end))
+            )
+            if interval <= tolerance:
                 return {}
-            targets = sorted({float(item) for item in targets if item > segment_start})
+            targets = sorted({
+                float(item) for item in targets
+                if item > segment_start + tolerance
+            })
             if not targets:
                 return {}
-            solution = solve_ivp(
-                rhs,
-                (segment_start, segment_end),
-                initial_state,
-                method=solver,
-                t_eval=targets,
-                rtol=rtol,
-                atol=atol,
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                solution = solve_ivp(
+                    rhs,
+                    (segment_start, segment_end),
+                    initial_state,
+                    method=solver,
+                    t_eval=targets,
+                    rtol=rtol,
+                    atol=atol,
+                )
             if not solution.success:
                 raise RuntimeError(
                     f"{self.model_id} failed with {solver}: {solution.message}"
