@@ -14,7 +14,7 @@ data/icrp_model_registry_v1/       由配置生成的可执行 registry
 data/icrp_knowledge_base_v2/       ICRP 文档检索索引
 data/synthetic_bioassay_icrp_v1/   仅用于理论验证的合成病例
 src/run_ode_dataset_pipeline.py    正式推理入口
-src/train_joint_grpo.py            正式联合训练入口
+src/train_online_grpo.py            严格在线 verifier-in-the-loop 联合训练入口
 src/train_qwen_grpo.py             联合训练复用的 GRPO helper，不作为单独主线
 docs/cloud_training.md              唯一训练与云端交接文档
 models/和 temp/                     本地/云端生成的模型、数据和日志，不参与代码版本
@@ -92,7 +92,8 @@ NNDC NuDat 是美国 Brookhaven National Laboratory 的核素数据库：
 - `src/train_llm_gate.py`：训练 MLP 的二分类 gate。
 - `src/train_qwen_lora.py`：监督式 operator SFT LoRA baseline。
 - `src/train_qwen_grpo.py`：被联合训练器复用的 GRPO 编码、采样和 reward helper；云端不要单独启动它。
-- `src/train_joint_grpo.py`：当前唯一的 MLP gate + Qwen LoRA 联合训练入口。
+- `src/train_online_grpo.py`：当前唯一的严格在线 MLP gate + Qwen LoRA 联合训练入口；每个 proposal 都实时送入固定 ODE verifier。
+- `src/train_joint_grpo.py`：旧的离线 counterfactual 联合训练 baseline，不用于当前正式主线。
 - `src/build_llm_preference_dataset.py`：固定数值状态下枚举安全算子，建立 counterfactual reward 数据。
 - `src/evaluate_operator_preferences.py`：检查 preference reward、regret 与 forward-budget 统计。
 - `src/normalize_case_time_origin.py`：将无可靠暴露原点的结构化病例统一到明确的时间坐标。
@@ -146,4 +147,4 @@ E:\Miniforge\envs\medicine\python.exe src\run_ode_dataset_pipeline.py `
 
 项目的创新点应表述为“外部 ICRP 固定验证器约束下的语言模型数值优化策略学习”，而不是“LLM 发现任意生物动力学模型”。
 
-训练、输入输出、奖励、采样日志和云端命令见 [`docs/cloud_training.md`](docs/cloud_training.md)。当前可直接交接的本地 warm-start 数据和 checkpoint 也记录在该文档的“当前本地交接状态”章节。
+正式训练命令、目录约定、在线 reward、监控和只读评估见 [`docs/online_training.md`](docs/online_training.md)。

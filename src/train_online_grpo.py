@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -41,6 +42,7 @@ try:
         proposal_from_text,
     )
     from .train_qwen_lora import _adapter_state, _replace_target_modules, load_lora_adapter
+    from .operator_policy import GATE_ACTIONS, FEATURE_NAMES, OperatorMLP, state_to_features
 except ImportError:
     from compartment_ode import CompartmentODEForwardModel, ODEModelRegistry
     from multi_nuclide_llm_optimizer import (
@@ -57,6 +59,7 @@ except ImportError:
     )
     from train_qwen_grpo import _sequence_logprob, generation_inputs, proposal_from_text
     from train_qwen_lora import _adapter_state, _replace_target_modules, load_lora_adapter
+    from operator_policy import GATE_ACTIONS, FEATURE_NAMES, OperatorMLP, state_to_features
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,6 +136,27 @@ def _initial_state(
     if state is None:
         raise RuntimeError(f"Profile probe did not produce a numerical state for {case.case_id}.")
     return state, history, planner
+
+
+def _load_gate(path: Path) -> Tuple[OperatorMLP, Dict[str, Any]]:
+    payload = torch.load(str(path), map_location="cpu", weights_only=True)
+    if tuple(payload.get("feature_names", ())) != FEATURE_NAMES or tuple(payload.get("operators", ())) != GATE_ACTIONS:
+        raise ValueError("Gate checkpoint schema does not match this code version.")
+    model = OperatorMLP(int(payload["input_size"]), int(payload["hidden_size"]), len(GATE_ACTIONS))
+    model.load_state_dict(payload["model_state_dict"])
+    return model, {"feature_mean": payload["feature_mean"], "feature_std": payload["feature_std"], "input_size": payload["input_size"], "hidden_size": payload["hidden_size"], "feature_names": list(FEATURE_NAMES), "operators": list(GATE_ACTIONS)}
+
+
+def _skip_rollout(*, case: Any, forward: CompartmentODEForwardModel, planner: AdaptiveOperatorPlanner, history: Sequence[Dict[str, Any]], objective_before: float, budget: int, beta: float, seed: int) -> Tuple[float, Dict[str, Any]]:
+    plan, info = planner.propose(case, history)
+    if bool(plan.get("stop")):
+        reward, components = _reward(objective_before, objective_before, 0, budget, beta=beta, stopped=True)
+        return reward, {"operator": plan.get("operator"), "objective_after": objective_before, "forward_predict_calls": 0, "status": "terminal", "reward_components": components, "planner_info": info}
+    result = execute_numerical_plan(case, _limit_plan_budget(plan, budget), forward, seed=seed)
+    objective_after = float(result.get("objective_score", float("inf")))
+    calls = int(result.get("total_forward_predict_calls", 0))
+    reward, components = _reward(objective_before, objective_after, calls, budget, beta=beta)
+    return reward, {"operator": plan.get("operator"), "objective_after": objective_after, "forward_predict_calls": calls, "status": result.get("status"), "reward_components": components}
 
 
 def _online_rollout(
@@ -241,6 +265,11 @@ def main() -> None:
     parser.add_argument("--cases", type=int, default=2, help="Number of fresh cases to cycle through.")
     parser.add_argument("--model-path", type=Path, default=ROOT / "models" / "Qwen3-4b")
     parser.add_argument("--llm-adapter-path", type=Path)
+    parser.add_argument("--gate-path", type=Path, help="Optional pretrained gate checkpoint; otherwise initialize a fresh binary gate.")
+    parser.add_argument("--gate-hidden-size", type=int, default=32)
+    parser.add_argument("--gate-learning-rate", type=float, default=1e-3)
+    parser.add_argument("--gate-temperature", type=float, default=0.05)
+    parser.add_argument("--gate-exploration", type=float, default=0.20, help="Minimum CALL probability used for the sampled active gate action.")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "models" / "online_grpo_icrp_v1")
     parser.add_argument("--steps", type=int, default=4)
     parser.add_argument("--group-size", type=int, default=2)
@@ -279,7 +308,13 @@ def main() -> None:
     sample_path = output_dir / "samples.jsonl"
     readable_path = output_dir / "samples.txt"
     adapter_metadata: Dict[str, Any] = {}
+    gate_metadata: Dict[str, Any]
     adapter_path = _resolve(args.llm_adapter_path) if args.llm_adapter_path else None
+    if args.gate_path:
+        gate, gate_metadata = _load_gate(_resolve(args.gate_path))
+    else:
+        gate = OperatorMLP(len(FEATURE_NAMES), args.gate_hidden_size, len(GATE_ACTIONS))
+        gate_metadata = {"feature_mean": [0.0] * len(FEATURE_NAMES), "feature_std": [1.0] * len(FEATURE_NAMES), "input_size": len(FEATURE_NAMES), "hidden_size": args.gate_hidden_size, "feature_names": list(FEATURE_NAMES), "operators": list(GATE_ACTIONS)}
     if adapter_path:
         payload = torch.load(str(adapter_path), map_location="cpu", weights_only=False)
         adapter_metadata = dict(payload.get("metadata", {}))
@@ -290,6 +325,10 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    gate.to(device)
+    gate_optimizer = torch.optim.AdamW(gate.parameters(), lr=args.gate_learning_rate)
+    feature_mean = torch.tensor(gate_metadata["feature_mean"], dtype=torch.float32, device=device)
+    feature_std = torch.tensor(gate_metadata["feature_std"], dtype=torch.float32, device=device).clamp_min(1e-6)
     model = AutoModelForCausalLM.from_pretrained(
         str(model_path), local_files_only=True, trust_remote_code=True,
         torch_dtype=dtype, low_cpu_mem_usage=True,
@@ -319,6 +358,15 @@ def main() -> None:
                 planner.convergence_loss, planner.max_forward_predict_calls,
                 force_easy_stop=False,
             )
+            objective_before = float(state.get("objective_score", float("inf")))
+            features = (torch.from_numpy(state_to_features(state)).to(device) - feature_mean) / feature_std
+            gate_logits = gate(features.unsqueeze(0))
+            call_probability = torch.softmax(gate_logits.detach(), dim=-1)[0, GATE_ACTIONS.index("CALL_LLM")]
+            active_call_probability = max(float(args.gate_exploration), float(call_probability.cpu()))
+            active_call = random.random() < active_call_probability
+            skip_reward, skip_record = _skip_rollout(case=case, forward=forward, planner=planner, history=history_before, objective_before=objective_before, budget=args.forward_budget, beta=args.beta, seed=args.seed + step * 1000 + 777)
+            # The call-vs-skip target is finalized after the live Qwen rollouts.
+            target_call = 0.5
             prompt = _operator_selection_prompt(case, knowledge, state, sorted(allowed), history_before)
             encoded = generation_inputs(tokenizer, prompt, args.max_length)
             input_ids = encoded["input_ids"].to(device)
@@ -350,21 +398,45 @@ def main() -> None:
                 audit["reward"] = float(reward)
                 rollout_records.append(audit)
             rewards = torch.tensor(rollout_rewards, dtype=torch.float32, device=device)
+            call_reward = float(rewards.mean().detach().cpu())
+            active_reward = call_reward if active_call else float(skip_reward)
+            target_call = max(-30.0, min(30.0, (call_reward - skip_reward) / max(args.gate_temperature, 1e-6)))
+            target_call = float(torch.sigmoid(torch.tensor(target_call)).item())
+            target = torch.tensor([[1.0 - target_call, target_call]], dtype=torch.float32, device=device)
+            gate_loss = -(target * F.log_softmax(gate_logits, dim=-1)).sum(dim=-1).mean()
+            gate_optimizer.zero_grad(set_to_none=True)
+            gate_loss.backward()
+            clip_grad_norm_(gate.parameters(), 1.0)
+            gate_optimizer.step()
             advantages = (rewards - rewards.mean()) / rewards.std(unbiased=False).clamp_min(1e-3)
-            optimizer.zero_grad(set_to_none=True)
-            logprob = _sequence_logprob(model, generated, prompt_length, int(tokenizer.pad_token_id))
-            loss = -(advantages.detach() * logprob).mean()
-            loss.backward()
-            clip_grad_norm_(trainable, 1.0)
-            optimizer.step()
+            if active_call:
+                optimizer.zero_grad(set_to_none=True)
+                logprob = _sequence_logprob(model, generated, prompt_length, int(tokenizer.pad_token_id))
+                loss = -(advantages.detach() * logprob).mean()
+                loss.backward()
+                clip_grad_norm_(trainable, 1.0)
+                optimizer.step()
+                loss_value = float(loss.detach().cpu())
+            else:
+                # The call branch was evaluated as a counterfactual for the gate,
+                # but SKIP_LLM means no Qwen policy update on this state.
+                loss_value = 0.0
             record = {
                 "step": step + 1,
                 "case_id": case.case_id,
                 "split": args.split,
-                "algorithm": "strict_online_verifier_in_the_loop_grpo",
+                "algorithm": "strict_online_joint_grpo",
                 "objective_before": float(state.get("objective_score", float("inf"))),
+                "gate_call_probability": float(call_probability.cpu()),
+                "gate_active_call_probability": active_call_probability,
+                "gate_action": "CALL_LLM" if active_call else "SKIP_LLM",
+                "active_reward": active_reward,
+                "gate_target_call_probability": target_call,
+                "gate_loss": float(gate_loss.detach().cpu()),
+                "skip_reward": float(skip_reward),
+                "skip_rollout": skip_record,
                 "allowed_operators": sorted(allowed),
-                "loss": float(loss.detach().cpu()),
+                "loss": loss_value,
                 "mean_reward": float(rewards.mean().detach().cpu()),
                 "max_reward": float(rewards.max().detach().cpu()),
                 "min_reward": float(rewards.min().detach().cpu()),
@@ -379,19 +451,21 @@ def main() -> None:
             readable_log.write(json.dumps({
                 key: record[key] for key in (
                     "step", "case_id", "loss", "mean_reward", "max_reward",
-                    "min_reward", "valid_output_fraction", "forward_predict_calls",
+                    "min_reward", "gate_call_probability", "gate_action", "active_reward", "gate_loss", "skip_reward",
+                    "valid_output_fraction", "forward_predict_calls",
                 )
             }, ensure_ascii=False) + "\n")
             readable_log.flush()
             print(json.dumps({
                 key: record[key] for key in (
                     "step", "case_id", "loss", "mean_reward", "max_reward",
+                    "gate_call_probability", "gate_action", "active_reward",
                     "valid_output_fraction", "forward_predict_calls",
                 )
             }, ensure_ascii=False), flush=True)
 
     metadata = {
-        "algorithm": "strict_online_verifier_in_the_loop_grpo",
+        "algorithm": "strict_online_joint_grpo",
         "base_model": str(model_path),
         "split": args.split,
         "case_count": len(cases),
@@ -406,7 +480,11 @@ def main() -> None:
         "sample_log": str(sample_path),
         "clinical_use": False,
     }
+    metadata["gate_algorithm"] = "online_counterfactual_skip_vs_call"
+    metadata["gate_exploration"] = args.gate_exploration
+    metadata["gate_history"] = [{key: row[key] for key in ("step", "gate_call_probability", "gate_active_call_probability", "gate_action", "active_reward", "gate_target_call_probability", "gate_loss", "skip_reward") if key in row} for row in history]
     torch.save({"adapter_state": _adapter_state(model), "metadata": metadata}, output_dir / "adapter.pt")
+    torch.save({"model_state_dict": {key: value.detach().cpu() for key, value in gate.state_dict().items()}, **gate_metadata, "algorithm": "online_counterfactual_skip_vs_call", "history": metadata["gate_history"]}, output_dir / "llm_gate.pt")
     (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"output_dir": str(output_dir), "adapter": str(output_dir / "adapter.pt"), "metadata": metadata}, ensure_ascii=False, indent=2))
 
