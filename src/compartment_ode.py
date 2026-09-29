@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import csv
-import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -134,17 +133,15 @@ class CompartmentModel:
             })
             if not targets:
                 return {}
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                solution = solve_ivp(
-                    rhs,
-                    (segment_start, segment_end),
-                    initial_state,
-                    method=solver,
-                    t_eval=targets,
-                    rtol=rtol,
-                    atol=atol,
-                )
+            solution = solve_ivp(
+                rhs,
+                (segment_start, segment_end),
+                initial_state,
+                method=solver,
+                t_eval=targets,
+                rtol=rtol,
+                atol=atol,
+            )
             if not solution.success:
                 raise RuntimeError(
                     f"{self.model_id} failed with {solver}: {solution.message}"
