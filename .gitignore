@@ -1,5 +1,6 @@
 models/
 data/
+docs/*.pdf
 temp/
 __pycache__/
 *.py[cod]
