@@ -200,7 +200,7 @@ def main() -> None:
         str(model_path),
         local_files_only=True,
         trust_remote_code=True,
-        dtype=dtype,
+        torch_dtype=dtype,
         low_cpu_mem_usage=True,
     )
     for parameter in model.parameters():

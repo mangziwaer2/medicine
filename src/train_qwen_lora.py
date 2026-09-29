@@ -230,7 +230,7 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         str(model_path), local_files_only=True, trust_remote_code=True,
-        dtype=dtype, low_cpu_mem_usage=True,
+        torch_dtype=dtype, low_cpu_mem_usage=True,
     )
     # Freeze the complete base model before inserting adapters. Only LoRA A/B
     # tensors are allowed into the optimizer state.

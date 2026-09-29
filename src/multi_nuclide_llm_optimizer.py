@@ -1466,9 +1466,9 @@ class QwenClient:
             "low_cpu_mem_usage": True,
         }
         if self.device == "cuda":
-            load_kwargs["dtype"] = torch.bfloat16
+            load_kwargs["torch_dtype"] = torch.bfloat16
         else:
-            load_kwargs["dtype"] = torch.float32
+            load_kwargs["torch_dtype"] = torch.float32
         self.model = AutoModelForCausalLM.from_pretrained(str(model_path), **load_kwargs)
         self.adapter_path = adapter_path
         self.adapter_load_info = None
